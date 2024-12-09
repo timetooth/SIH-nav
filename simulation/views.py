@@ -6,6 +6,8 @@ from . import simulate_fire
 
 # Create your views here.
 
+cache = {}
+
 @api_view(['GET'])
 def default_view(request):
     return Response({"message": "Welcome to Simulate Module!"})
@@ -18,15 +20,17 @@ def get_keyframe(requests):
     Pass the frame number as frame_number
     '''
     frame_number = requests.query_params.get('time')
+    building_id = requests.query_params.get('building_id', 1)
+
     if frame_number is None:
         err = {'error': 'time is required parameter'}
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
-    key = f'building:1:frame:{frame_number}'
-    key_frame = simulate_fire.retrieve_array(key)
+    key = f'building:{building_id}:frame:{frame_number}'
+    key_frame = cache.get(key,None)
     if key_frame is None:
         err = {'error': 'time frame not found'}
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
-    return Response({'key_frames': key_frame})
+    return Response({'key_frame': key_frame})
 
 @api_view(['POST'])
 def start_simulation(request):
@@ -38,6 +42,7 @@ def start_simulation(request):
     steps: int number of keyframes
     alpha, beta, gamma: optional hyperparameters, range(0,1)
     warn_threshold: float threshold for warning, range(0,1)
+    send_frames: bool whether to send the frames in the response
     '''
     ignite_cell = request.data.get('ignite_cell')
     shape = request.data.get('shape')
@@ -46,11 +51,18 @@ def start_simulation(request):
     gamma = request.data.get('gamma', 0.1)
     steps = request.data.get('steps')
     warn_threshold = request.data.get('warn_threshold', 0.8)
+    building_id = request.data.get('building_id', 1)
+    send_frames = request.data.get('send_frames', True)
 
     if ignite_cell is None or shape is None or steps is None:
         err = {'error': 'ignite_cell, shape, and steps are required parameters'}
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
-    simulate_fire.simulate_fire(ignite_cell, shape, alpha, beta, gamma, steps, warn_threshold)
+    frames = simulate_fire.simulate_fire(ignite_cell, shape, alpha, beta, gamma, steps, warn_threshold)
 
-    return Response({'message': 'Simulation Ran!'}, status=status.HTTP_202_ACCEPTED)
+    for frame_number, frame in enumerate(frames):
+        key = f'building:{building_id}:frame:{frame_number}'
+        cache[key] = frame
+    
+    if send_frames: return Response({'keyframes': frames}, status=status.HTTP_202_ACCEPTED)
+    else: return Response({'keyframes': 'Frames have ben stored'}, status=status.HTTP_200_OK)

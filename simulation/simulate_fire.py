@@ -1,10 +1,6 @@
 from scipy.signal import convolve2d
 import numpy as np
 import random
-import redis
-import io
-
-cache = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 '''
 The module contains the functions to simulate the spread of fire 
@@ -85,28 +81,6 @@ def update_grid(grid, tti, alpha=1, beta=0.5, gamma=0.1, warn_threshold=0.8):
     grid[warn] = 2
     return grid
 
-def store_array(key, array, timeout=3600):
-    """
-    Serialize and store a NumPy array in Redis.
-    """
-    buffer = io.BytesIO()
-    np.save(buffer, array)
-    buffer.seek(0) 
-    cache.set(key, buffer.read(), ex=timeout)
-
-def retrieve_array(key):
-    """
-    Retrieve and deserialize a NumPy array from Redis,
-    then convert it to a JSON-serializable format.
-    """
-    array_data = cache.get(key)
-    if array_data is None:
-        return None
-    buffer = io.BytesIO(array_data)
-    buffer.seek(0)
-    array = np.load(buffer)
-    return array.tolist()
-
 def simulate_fire(ignite_cell, shape, alpha=1, beta=0.5, gamma=0.1, steps=50, warn_threshold=0.8, grid=None, tti=None):
     '''
     Each grid acts a key frame for the simulation
@@ -119,11 +93,10 @@ def simulate_fire(ignite_cell, shape, alpha=1, beta=0.5, gamma=0.1, steps=50, wa
     Returns: an array of size steps containing the situation of gid at each step
     0 - not burning, 1 - burning, 2 - warning
     '''
-    cache.flushdb()
+    frames = []
     if grid is None or tti is None:
         grid, tti = initialize_grid(ignite_cell, shape=shape)
     for frame_number in range(steps):
         grid = update_grid(grid, tti, alpha, beta, gamma, warn_threshold)
-        cache_key = f"building:{1}:frame:{frame_number}"
-        store_array(cache_key, grid,3600)
-    return
+        frames.append(grid.tolist())
+    return frames
