@@ -38,6 +38,6 @@ def get_dummy(request):
         err = {'error': 'user_id and incident_id is required as querry params'}
         return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
     db = utils.get_db()
-    path = {'1':True,'2':True,'3':True,'4':True,'5':True,'6':True,'7':True,'8':True,'9':True}
+    path = {'0':'1','1':'2','2':'3','3':'4','4':'5','5':'6','6':'18','7':'17','8':'25','9':'33'}
     db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
     return JsonResponse({'message':f'Dummy Route Created for user {user_id}'}, status=status.HTTP_200_OK)
