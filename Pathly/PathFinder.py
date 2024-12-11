@@ -83,7 +83,7 @@ def construct_path(came_from,current):
     return path
 
 def h(node,neighbour):
-    Node_on_fire_heuristic = 100000
+    Node_on_fire_heuristic = float('inf')
     if node.on_fire: return Node_on_fire_heuristic
     return 0
 
