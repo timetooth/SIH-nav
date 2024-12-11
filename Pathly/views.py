@@ -1,13 +1,13 @@
 from rest_framework.decorators import api_view
 from rest_framework import status
 from django.shortcuts import render
-from django.http import JsonResponse
+from rest_framework.response import Response
 from . import utils
 from . import PathFinder
 import requests
 import json
 
-nodes_cache = {}
+walking_speed = 1.5
 
 
 @api_view(['GET'])
@@ -15,7 +15,7 @@ def default_view(request):
     """ Get A Dummy Route """   
     db = utils.get_db()
     data = db.child("Incidents").get().val()
-    return JsonResponse(data)
+    return Response(data)
 
 @api_view(['GET'])
 def get_route(request):
@@ -36,7 +36,7 @@ def get_route(request):
     goal_id = int(request.query_params.get('goal_id'))
     if building_id is None or start_id is None or goal_id is None:
         err = {'error': 'building_id, start_id and goal_id are required as querry params'}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     db = utils.get_db()
     base_url = utils.get_nodeurl()
     graph = PathFinder.get_graph(building_id,db)
@@ -45,7 +45,7 @@ def get_route(request):
     end = nodes[goal_id]
     path_nodes,distance = PathFinder.astar(nodes,start,[end])
     path = {id: node.id for id, node in enumerate(path_nodes)}
-    return JsonResponse({'path':path,'distance':distance}, status=status.HTTP_200_OK)
+    return Response({'path':path,'distance':distance}, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
 def route_nearest(request):
@@ -69,10 +69,10 @@ def route_nearest(request):
 
     if incident_id is None or start_id is None or mode is None:
         err = {'error': 'incident_id, start_id are required as querry params'}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     if mode not in modes:
         err = {'error': "mode should be either 'exit', 'extinguisher' or 'medkit'"}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     db = utils.get_db()
     base_url = utils.get_nodeurl()
@@ -80,7 +80,7 @@ def route_nearest(request):
 
     if incident.status_code != 200 or incident.json()['incident'] is None:
         err = {'error': 'incident not found', 'incident':incident.json()}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
     graph = PathFinder.get_graph(incident_id,db)
@@ -93,7 +93,7 @@ def route_nearest(request):
     elif mode == 'medkit': goal_nodes = medkits
     path_nodes,distance = PathFinder.astar(nodes,start,goal_nodes)
     path = {id: node.id for id, node in enumerate(path_nodes)}
-    return JsonResponse({'path':path,'distance':distance,'time':int(distance/(1.5*60))}, status=status.HTTP_200_OK)
+    return Response({'path':path,'distance':distance,'time':int(distance/(walking_speed*60))}, status=status.HTTP_200_OK)
 
 
 @api_view(['get'])
@@ -106,21 +106,22 @@ def route_user(request):
 
     if incident_id is None or user_id is None:
         err = {'error': 'incident_id and user_id are required as querry params'}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     if mode not in modes:
         err = {'error': "mode should be either 'exit', 'extinguisher' or 'medkit'"}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     db = utils.get_db()
     base_url = utils.get_nodeurl()
     incident = requests.get(f'{base_url}/api/incident/{incident_id}')
     start = db.child('Incidents').child(incident_id).child('UserLocs').child(user_id).child('nearestNode').get().val()
-    if start is None: return JsonResponse({'error':f'User {user_id} not found in incident {incident_id}'}, status=status.HTTP_400_BAD_REQUEST)
+    if start is None: 
+        return Response({'error':f'User {user_id} not found in incident {incident_id}'}, status=status.HTTP_400_BAD_REQUEST)
     start = int(start)
 
-    if incident.status_code != 200 or incident.json()['incident'] is None:
-        err = {'error': 'incident not found', 'incident':incident.json()}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+    incident_data = incident.json()
+    if 'incident' not in incident_data or incident_data['incident'] is None:
+        return Response({'error': 'Invalid incident response'}, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
     graph = PathFinder.get_graph(building_id,db)
@@ -133,13 +134,13 @@ def route_user(request):
     elif mode == 'medkit': goal_nodes = medkits
     path_nodes, distance = PathFinder.astar(nodes,start,goal_nodes)
     path = {id: node.id for id, node in enumerate(path_nodes)}
-    time = distance/1.5
+    time = distance/walking_speed
     try:
         db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
         db.child('Incidents').child(incident_id).child('RoutesMetadata').child(user_id).set({'distance':distance,'mode':mode,'time': int(time/60)})
-        return JsonResponse({'message':f'Route Created for user {user_id}'}, status=status.HTTP_200_OK)
+        return Response({'message':f'Route Created for user {user_id}'}, status=status.HTTP_200_OK)
     except Exception as e:
-        return JsonResponse({'error':f'Error creating route for user {user_id}'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error':f'Error creating route for user {user_id}'}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['post'])
 def reroute(request):
@@ -150,22 +151,22 @@ def reroute(request):
 
     if incident_id is None:
         err = {'error': 'incident_id, start and user_id are required as querry params'}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     else: incident_id = int(incident_id)
     if mode not in modes:
         err = {'error': "mode should be either 'exit', 'extinguisher' or 'medkit'"}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     db = utils.get_db()
     base_url = utils.get_nodeurl()
     try:
         incident = requests.get(f'{base_url}/api/incident/{incident_id}')
     except Exception as e:
-        return JsonResponse({'error':f'Error getting incident from Node backend {incident_id}','exception':str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error':f'Error getting incident from Node backend {incident_id}','exception':str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     if incident.status_code != 200 or incident.json()['incident'] is None:
         err = {'error': 'incident not found', 'incident':incident.json()}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
     graph = PathFinder.get_graph(incident_id,db)
@@ -190,14 +191,16 @@ def reroute(request):
                     {'canEscape':False}
                 )
             db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
-            time = distance/1.5
-            db.child('Incidents').child(incident_id).child('RoutesMetadata').child(user_id).set({'distance':int(distance),'mode':mode,'time': int(time/60)})
+            time = distance/walking_speed
+            db.child('Incidents').child(incident_id).child('RoutesMetadata').child(user_id).set({
+                'distance':int(distance),'mode':mode,'time': int(time/60)
+            })
         except Exception as e:
             errors.append(f'Error creating route for user {user_id}')
 
         if errors is not None and len(errors)>1:
-            return JsonResponse({'message':'Some users were updated, but these were not','error':errors}, status=status.HTTP_400_BAD_REQUEST)
-    return JsonResponse({'message':'All user routes updated'}, status=status.HTTP_200_OK)
+            return Response({'message':'Some users were updated, but these were not','error':errors}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'message':'All user routes updated'}, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
 def get_dummy(request):
@@ -205,11 +208,11 @@ def get_dummy(request):
     incident_id = request.GET.get('incident_id', None)
     if user_id is None or incident_id is None:
         err = {'error': 'user_id and incident_id is required as querry params'}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     db = utils.get_db()
     path = {'0':'1','1':'2','2':'3','3':'4','4':'5','5':'6','6':'18','7':'17','8':'25','9':'33'}
     db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
-    return JsonResponse({'message':f'Dummy Route Created for user {user_id}'}, status=status.HTTP_200_OK)
+    return Response({'message':f'Dummy Route Created for user {user_id}'}, status=status.HTTP_200_OK)
 
 def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_current,alpha=0.5):
     def clip(value, min_val=0.0, max_val=1.0): return max(min_val, min(value, max_val))
@@ -224,7 +227,7 @@ def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_cur
     P_n = clip(abs(P_current - P_baseline) / P_range)
     W_flame,W_smoke,W_temp,W_hum,W_press = 0.40,0.30,0.20,0.05,0.05
     FII = (W_flame * F_n) + (W_smoke * S_n) + (W_temp * T_n) + (W_hum * H_n) + (W_press * P_n)
-    FII = round(alpha*FII * 100,2)
+    FII = round(alpha*FII*100,2)
     return FII
 
 @api_view(['Post'])
@@ -239,11 +242,11 @@ def set_fire_intensity(request):
     alpha = request.data.get('alpha',0.5)
     if T_current is None or H_current is None or CO_ppm is None or FlameValue is None or P_current is None:
         err = {'error': 'temperature, humidity, CO_ppm, FlameValue, and pressure are required parameters'}
-        return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
+        return Response(err, status=status.HTTP_400_BAD_REQUEST)
     FII = compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_current,alpha)
     db = utils.get_db()
     try:
         db.child('Incidents').child(incident_id).update({f'intensity':FII})
     except Exception as e:
-        return JsonResponse({'error':f'Error setting fire intensity for incident {incident_id}'}, status=status.HTTP_400_BAD_REQUEST)
-    return JsonResponse({'message':f'Fire Intensity set to {FII}','intensity':FII}, status=status.HTTP_200_OK)
+        return Response({'error':f'Error setting fire intensity for incident {incident_id}'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'message':f'Fire Intensity set to {FII}','intensity':FII}, status=status.HTTP_200_OK)
