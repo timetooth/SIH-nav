@@ -1,19 +1,8 @@
-import json
 import pyrebase
 import requests
 from geopy.distance import geodesic
 from queue import PriorityQueue
 from . import utils
-from upstash_redis import Redis
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
-redis_url = os.getenv("REDIS_URL")
-redis_token = os.getenv("REDIS_TOKEN")
-
-redis = Redis(url=redis_url, token=redis_token)
 
 class Node:
     def __init__(self,id,coordinates,neighbours,poi=None,name=None,on_fire=False,is_extinguisher=False,is_medkit=False):
@@ -48,76 +37,42 @@ def get_fire_nodes(incident_id,db):
         elif isinstance(node, tuple) or isinstance(node, list): fire_nodes.append((node[0]))
     return fire_nodes
 
-def get_graph(building_id, db):
-    cache_key = f"graph_data:{building_id}"
-    cached_graph = redis.get(cache_key)
-    if cached_graph is not None:
-        graph = json.loads(cached_graph)
-        return graph
-    else:
-        adj_list = normalize_data(db.child('Buildings').child(f'{building_id}').child('AdjList').get().val())
-        if adj_list is None:
-            return {}
-        graph = {}
-        for node, children in adj_list.items():
-            node = int(node)
-            children = normalize_data(children)
-            graph[node] = list(map(int, children.keys()))
-        redis.set(cache_key, json.dumps(graph))
-        return graph
+def get_graph(building_id,db):
+    adj_list = normalize_data(data = db.child('Buildings').child(f'{building_id}').child('AdjList').get().val())
+    if adj_list is None: return {}
+    graph = {}
+    for node, children in adj_list.items():
+        node = int(node)
+        children = normalize_data(children)
+        graph[node] = list(map(int,children.keys()))
+    return graph
 
-def get_node_objs(graph, fire_nodes, building_id):
+def get_node_objs(graph,fire_nodes,building_id):
     """
-    Returns:
-        - dict {Id: Node_obj}
+    Returns 
+        - dict {Id : Node_obj}
         - list [fire extinguisher node objects]
         - list [medkit node objects]
         - list [exit node objects]
     """
     base_url = utils.get_nodeurl()
-    cache_key = f"nodes_data:{building_id}"
-    nodes_data = {}
-
-    try:
-        cached_nodes = redis.get(cache_key)
-        if cached_nodes:
-            nodes_data = json.loads(cached_nodes)
-        else:
-            nodes_raw = requests.get(f'{base_url}/api/building/{building_id}/node')
-            nodes_raw.raise_for_status()
-            nodes_data = nodes_raw.json().get('nodes', [])
-            redis.set(cache_key, json.dumps(nodes_data))
-
-        if not nodes_data:
-            return {}, [], [], [] 
-
-        fire_extinguishers = []
-        medkits = []
-        exits = []
-        nodes = {}
-
-        for node in nodes_data:
-            id = node['id']
-            coordinates = node.get('latlng', {}).get('coordinates', None)
-            poi = node.get('poi', None)
-            name = node.get('name', None)
-            on_fire = id in fire_nodes
-
-            nodes[id] = Node(id, coordinates, graph.get(id, []), poi, name, on_fire=on_fire)
-
-            if poi == 'EXTINGUISHER':
-                fire_extinguishers.append(nodes[id])
-            elif poi == 'FIRST_AID':
-                medkits.append(nodes[id])
-            elif poi == 'EXIT':
-                exits.append(nodes[id])
-
-        return nodes, fire_extinguishers, medkits, exits
-
-    except requests.RequestException as e:
-        raise ValueError(f"Error fetching nodes data for building {building_id}: {e}")
-    except Exception as e:
-        raise ValueError(f"Unexpected error while processing nodes: {e}")
+    nodes_data = requests.get(f'{base_url}/api/building/{building_id}/node')
+    nodes_data = nodes_data.json()['nodes']
+    fire_extinguishers = []
+    medkits = []
+    exits = []
+    nodes = {}
+    for node in nodes_data:
+        id = node['id']
+        coordinates = node.get('latlng', {}).get('coordinates', None)
+        poi = node.get('poi', None)
+        name = node.get('name', None)
+        on_fire = True if id in fire_nodes else False
+        nodes[node['id']] = Node(id,coordinates,graph[id],poi,name,on_fire=on_fire)
+        if poi == 'EXTINGUISHER': fire_extinguishers.append(nodes[node['id']])
+        elif poi == 'FIRST_AID': medkits.append(nodes[node['id']])
+        elif poi == 'EXIT': exits.append(nodes[node['id']])
+    return nodes, fire_extinguishers, medkits, exits
 
 def construct_path(came_from,current):
     path=[current]
@@ -165,3 +120,31 @@ def astar(nodes,start,goal_nodes):
                     open_set.put((f_score[neighbour],count,neighbour))
                     open_set_hash.add(neighbour)
     return [], 0
+
+# def path_finder(start_id,goal_id,building_id,incident_id,db):
+#     """
+#     start_id : id of starting node
+#     goal_id : id of goal node
+#     building_id : id of building
+#     incident_id : id of incident
+#     db : firebase database object
+#     mode : 'route' or 'exit' or 'extinguisher' or 'medkit' where to route
+#     """
+#     """
+#     Utils
+#         - normalize data
+#         - g get gscore 
+#         - h get heuristic
+#         - construct path
+#     get graph
+#     get fire nodes
+#     get node objs
+#     astar
+#     """
+#     graph = get_graph(building_id,db)
+#     fire_nodes = get_fire_nodes(incident_id,db)
+#     nodes = get_node_objs(graph,fire_nodes,building_id)
+#     start = nodes[start_id]
+#     end = nodes[goal_id]
+#     path = astar(nodes,start,end)
+#     return path

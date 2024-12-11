@@ -133,6 +133,7 @@ def route_user(request):
     elif mode == 'extinguisher': goal_nodes = fire_extinguishers
     elif mode == 'medkit': goal_nodes = medkits
     path_nodes, distance = PathFinder.astar(nodes,start,goal_nodes)
+    print(path_nodes)
     path = {id: node.id for id, node in enumerate(path_nodes)}
     time = distance/walking_speed
     try:
