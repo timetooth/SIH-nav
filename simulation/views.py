@@ -13,24 +13,55 @@ def default_view(request):
     return Response({"message": "Welcome to Simulate Module!"})
 
 @api_view(['GET'])
-def get_keyframe(requests):
-    '''
-    This function is used to get the keyframes of the simulation
-    GET request:
-    Pass the frame number as frame_number
-    '''
-    frame_number = requests.query_params.get('time')
-    building_id = requests.query_params.get('building_id', 1)
+def get_keyframe(request):
+    """
+    Get the keyframes of the simulation.
+
+    GET Parameters:
+    - time: Frame number (required).
+    - building_id: ID of the building (default: 1).
+    - ignite_cell: Comma-separated cell indices (optional).
+    - shape: Comma-separated shape dimensions (optional).
+    - steps: Number of steps (optional).
+
+    Returns:
+    - Key frame data or an error message.
+    """
+    frame_number = request.query_params.get('time')
+    building_id = int(request.query_params.get('building_id', 1))
+    ignite_cell_str = request.query_params.get('ignite_cell', '')
+    shape_str = request.query_params.get('shape', '')
+    steps = request.query_params.get('steps')
 
     if frame_number is None:
-        err = {'error': 'time is required parameter'}
-        return Response(err, status=status.HTTP_400_BAD_REQUEST)
-    key = f'building:{building_id}:frame:{frame_number}'
-    key_frame = cache.get(key,None)
-    if key_frame is None:
-        err = {'error': 'time frame not found'}
-        return Response(err, status=status.HTTP_400_BAD_REQUEST)
-    return Response({'key_frame': key_frame})
+        return Response({'error': 'time is a required parameter'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        frame_number = int(frame_number)
+    except ValueError:
+        return Response({'error': 'time must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+    ignite_cell = [int(i) for i in ignite_cell_str.split(',')] if ignite_cell_str else None
+    shape = [int(i) for i in shape_str.split(',')] if shape_str else None
+
+    key = f'{building_id}'
+    if ignite_cell and shape:
+        key = f'{ignite_cell}:{shape}:{steps}:{building_id}'
+
+    if key in cache:
+        frame = cache[key].get(frame_number)
+        if frame is not None:
+            return Response({'key_frame': frame})
+        return Response({'error': 'time frame not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+    for k, val in cache.items():
+        if key in k:
+            frame = val.get(frame_number)
+            if frame is not None:
+                return Response({'key_frame': frame})
+            return Response({'error': 'time frame not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({'error': 'time frame not found'}, status=status.HTTP_400_BAD_REQUEST)
+
 
 @api_view(['POST'])
 def start_simulation(request):
@@ -54,15 +85,20 @@ def start_simulation(request):
     building_id = request.data.get('building_id', 1)
     send_frames = request.data.get('send_frames', True)
 
+    key = f'{ignite_cell}:{shape}:{steps}:{building_id}'
+    if key in cache: 
+        if send_frames: return Response({'keyframes': list(cache[key].values())}, status=status.HTTP_202_ACCEPTED)
+        else: return Response({'keyframes': 'Frames have ben stored'}, status=status.HTTP_200_OK)
+    
     if ignite_cell is None or shape is None or steps is None:
         err = {'error': 'ignite_cell, shape, and steps are required parameters'}
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     frames = simulate_fire.simulate_fire(ignite_cell, shape, alpha, beta, gamma, steps, warn_threshold)
 
+    cache[key] = {}
     for frame_number, frame in enumerate(frames):
-        key = f'building:{building_id}:frame:{frame_number}'
-        cache[key] = frame
+        cache[key][frame_number] = frame
     
-    if send_frames: return Response({'keyframes': frames}, status=status.HTTP_202_ACCEPTED)
+    if send_frames: return Response({'keyframes': list(cache[key].values())}, status=status.HTTP_202_ACCEPTED)
     else: return Response({'keyframes': 'Frames have ben stored'}, status=status.HTTP_200_OK)
