@@ -7,7 +7,8 @@ from . import PathFinder
 import requests
 import json
 
-cache = {}
+nodes_cache = {}
+
 
 @api_view(['GET'])
 def default_view(request):
@@ -42,9 +43,9 @@ def get_route(request):
     nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,[],building_id)
     start = nodes[start_id]
     end = nodes[goal_id]
-    path_nodes = PathFinder.astar(nodes,start,[end])
+    path_nodes,distance = PathFinder.astar(nodes,start,[end])
     path = {id: node.id for id, node in enumerate(path_nodes)}
-    return JsonResponse({'path':path}, status=status.HTTP_200_OK)
+    return JsonResponse({'path':path,'distance':distance}, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
 def route_nearest(request):
@@ -90,25 +91,21 @@ def route_nearest(request):
     if mode == 'exit': goal_nodes = exits
     elif mode == 'extinguisher': goal_nodes = fire_extinguishers
     elif mode == 'medkit': goal_nodes = medkits
-    path_nodes = PathFinder.astar(nodes,start,goal_nodes)
+    path_nodes,distance = PathFinder.astar(nodes,start,goal_nodes)
     path = {id: node.id for id, node in enumerate(path_nodes)}
-    return JsonResponse({'path':path}, status=status.HTTP_200_OK)
+    return JsonResponse({'path':path,'distance':distance,'time':int(distance/(1.5*60))}, status=status.HTTP_200_OK)
 
 
 @api_view(['get'])
 def route_user(request):
     incident_id = request.query_params.get('incident_id')
     mode = request.query_params.get('mode','exit')
-    start = request.query_params.get('start_id')
     user_id = request.query_params.get('user_id')
-
-    if start is not None: start = int(start)
-    if user_id is not None: user_id = int(user_id)
 
     modes = ['exit','extinguisher','medkit']
 
-    if incident_id is None or start is None or user_id is None:
-        err = {'error': 'incident_id, start and user_id are required as querry params'}
+    if incident_id is None or user_id is None:
+        err = {'error': 'incident_id and user_id are required as querry params'}
         return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
     if mode not in modes:
         err = {'error': "mode should be either 'exit', 'extinguisher' or 'medkit'"}
@@ -117,13 +114,16 @@ def route_user(request):
     db = utils.get_db()
     base_url = utils.get_nodeurl()
     incident = requests.get(f'{base_url}/api/incident/{incident_id}')
+    start = db.child('Incidents').child(incident_id).child('UserLocs').child(user_id).child('nearestNode').get().val()
+    if start is None: return JsonResponse({'error':f'User {user_id} not found in incident {incident_id}'}, status=status.HTTP_400_BAD_REQUEST)
+    start = int(start)
 
     if incident.status_code != 200 or incident.json()['incident'] is None:
         err = {'error': 'incident not found', 'incident':incident.json()}
         return JsonResponse(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
-    graph = PathFinder.get_graph(incident_id,db)
+    graph = PathFinder.get_graph(building_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
     nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id)
     start = nodes[start]
@@ -131,11 +131,12 @@ def route_user(request):
     if mode == 'exit': goal_nodes = exits
     elif mode == 'extinguisher': goal_nodes = fire_extinguishers
     elif mode == 'medkit': goal_nodes = medkits
-    path_nodes = PathFinder.astar(nodes,start,goal_nodes)
+    path_nodes, distance = PathFinder.astar(nodes,start,goal_nodes)
     path = {id: node.id for id, node in enumerate(path_nodes)}
-
+    time = distance/1.5
     try:
         db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
+        db.child('Incidents').child(incident_id).child('RoutesMetadata').child(user_id).set({'distance':distance,'mode':mode,'time': int(time/60)})
         return JsonResponse({'message':f'Route Created for user {user_id}'}, status=status.HTTP_200_OK)
     except Exception as e:
         return JsonResponse({'error':f'Error creating route for user {user_id}'}, status=status.HTTP_400_BAD_REQUEST)
@@ -176,24 +177,21 @@ def reroute(request):
     elif mode == 'medkit': goal_nodes = medkits
     errors = []
     users_data = db.child('Incidents').child(incident_id).child('UserLocs').get().val()
-    no_data = False
-    if users_data is None: 
-        no_data = True
-        users_data = {}
+    if users_data is None: users_data = {}
     users = dict(users_data)
     for user_id, user_data in users.items():
         if not user_data['isInside']: continue
         start = nodes[user_data['nearestNode']]
-        path_nodes = PathFinder.astar(nodes,start,goal_nodes)
-        path = {id: node.id for id, node in enumerate(path_nodes)}
-        if path_nodes is None or len(path_nodes)<1: 
-            db.child('Incidents').child(incident_id).child('UserLocs').child(user_id).update(
-                {'canEscape':False}
-            )
-        db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
         try:
-            path_nodes = PathFinder.astar(nodes,start,goal_nodes)
+            path_nodes, distance = PathFinder.astar(nodes,start,goal_nodes)
             path = {id: node.id for id, node in enumerate(path_nodes)}
+            if path_nodes is None or len(path_nodes)<1: 
+                db.child('Incidents').child(incident_id).child('UserLocs').child(user_id).update(
+                    {'canEscape':False}
+                )
+            db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
+            time = distance/1.5
+            db.child('Incidents').child(incident_id).child('RoutesMetadata').child(user_id).set({'distance':int(distance),'mode':mode,'time': int(time/60)})
         except Exception as e:
             errors.append(f'Error creating route for user {user_id}')
 

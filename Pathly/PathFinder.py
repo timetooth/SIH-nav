@@ -106,7 +106,7 @@ def astar(nodes,start,goal_nodes):
         open_set_hash.remove(current)
         if current in goal_nodes: 
             path = construct_path(came_from,current)
-            return path
+            return path, int(g_score[current])
         
         for neighbour_id in current.neighbours: 
             neighbour = nodes[int(neighbour_id)]
@@ -119,7 +119,7 @@ def astar(nodes,start,goal_nodes):
                     count += 1
                     open_set.put((f_score[neighbour],count,neighbour))
                     open_set_hash.add(neighbour)
-    return []
+    return [], 0
 
 # def path_finder(start_id,goal_id,building_id,incident_id,db):
 #     """
