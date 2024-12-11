@@ -47,7 +47,7 @@ def get_graph(building_id,db):
         graph[node] = list(map(int,children.keys()))
     return graph
 
-def get_node_objs(graph,fire_nodes,building_id):
+def get_node_objs(graph,fire_nodes,building_id,nodes_data):
     """
     Returns 
         - dict {Id : Node_obj}
@@ -55,9 +55,6 @@ def get_node_objs(graph,fire_nodes,building_id):
         - list [medkit node objects]
         - list [exit node objects]
     """
-    base_url = utils.get_nodeurl()
-    nodes_data = requests.get(f'{base_url}/api/building/{building_id}/node')
-    nodes_data = nodes_data.json()['nodes']
     fire_extinguishers = []
     medkits = []
     exits = []

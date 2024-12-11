@@ -7,6 +7,35 @@ from . import PathFinder
 import requests
 import json
 
+nodes_data_cache = {} # building_id vs nodes_data
+graph_cache = {}
+
+def get_node_data(building_id):
+    if building_id is not None: building_id = int(building_id)
+    if building_id in nodes_data_cache: return nodes_data_cache[building_id]
+    else:
+        base_url = utils.get_nodeurl()
+        nodes_data = requests.get(f'{base_url}/api/building/{building_id}/node')
+        nodes_data = nodes_data.json()['data']
+        nodes_data_cache[building_id] = nodes_data
+        return nodes_data
+
+def get_graph(building_id,db):
+    if building_id in graph_cache: return graph_cache[building_id]
+    else:
+        adj_list = PathFinder.normalize_data(data = db.child('Buildings').child(f'{building_id}').child('AdjList').get().val())
+        if adj_list is None: return {}
+        graph = {}
+        for node, children in adj_list.items():
+            node = int(node)
+            children = PathFinder.normalize_data(children)
+            graph[node] = list(map(int,children.keys()))
+        graph_cache[building_id] = graph
+        return graph
+    
+get_node_data(1)
+get_graph(1,utils.get_db())
+
 walking_speed = 1.5
 
 
@@ -39,8 +68,8 @@ def get_route(request):
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     db = utils.get_db()
     base_url = utils.get_nodeurl()
-    graph = PathFinder.get_graph(building_id,db)
-    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,[],building_id)
+    graph = get_graph(building_id,db)
+    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,[],building_id,get_node_data(building_id))
     start = nodes[start_id]
     end = nodes[goal_id]
     path_nodes,distance = PathFinder.astar(nodes,start,[end])
@@ -83,9 +112,9 @@ def route_nearest(request):
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
-    graph = PathFinder.get_graph(incident_id,db)
+    graph = get_graph(incident_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
-    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id)
+    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     start = nodes[start_id]
     goal_nodes = []
     if mode == 'exit': goal_nodes = exits
@@ -124,16 +153,15 @@ def route_user(request):
         return Response({'error': 'Invalid incident response'}, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
-    graph = PathFinder.get_graph(building_id,db)
+    graph = get_graph(building_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
-    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id)
+    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     start = nodes[start]
     goal_nodes = []
     if mode == 'exit': goal_nodes = exits
     elif mode == 'extinguisher': goal_nodes = fire_extinguishers
     elif mode == 'medkit': goal_nodes = medkits
     path_nodes, distance = PathFinder.astar(nodes,start,goal_nodes)
-    print(path_nodes)
     path = {id: node.id for id, node in enumerate(path_nodes)}
     time = distance/walking_speed
     try:
@@ -170,9 +198,9 @@ def reroute(request):
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
-    graph = PathFinder.get_graph(incident_id,db)
+    graph = get_graph(incident_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
-    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id)
+    nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     goal_nodes = []
     if mode == 'exit': goal_nodes = exits
     elif mode == 'extinguisher': goal_nodes = fire_extinguishers
@@ -215,7 +243,7 @@ def get_dummy(request):
     db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
     return Response({'message':f'Dummy Route Created for user {user_id}'}, status=status.HTTP_200_OK)
 
-def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_current,alpha=0.5):
+def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_current=1013,alpha=0.5):
     def clip(value, min_val=0.0, max_val=1.0): return max(min_val, min(value, max_val))
     T_ambient,T_maxRise = 25.0,75.0
     CO_max ,FlameMax = 1000.0, 1023.0
