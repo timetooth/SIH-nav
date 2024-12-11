@@ -107,6 +107,9 @@ def astar(nodes,start,goal_nodes):
         
         for neighbour_id in current.neighbours: 
             neighbour = nodes[int(neighbour_id)]
+
+            if neighbour.on_fire: continue
+
             temp_g_score = g_score[current] + g(current,neighbour)
             if temp_g_score < g_score[neighbour]:
                 came_from[neighbour] = current
@@ -117,31 +120,3 @@ def astar(nodes,start,goal_nodes):
                     open_set.put((f_score[neighbour],count,neighbour))
                     open_set_hash.add(neighbour)
     return [], 0
-
-# def path_finder(start_id,goal_id,building_id,incident_id,db):
-#     """
-#     start_id : id of starting node
-#     goal_id : id of goal node
-#     building_id : id of building
-#     incident_id : id of incident
-#     db : firebase database object
-#     mode : 'route' or 'exit' or 'extinguisher' or 'medkit' where to route
-#     """
-#     """
-#     Utils
-#         - normalize data
-#         - g get gscore 
-#         - h get heuristic
-#         - construct path
-#     get graph
-#     get fire nodes
-#     get node objs
-#     astar
-#     """
-#     graph = get_graph(building_id,db)
-#     fire_nodes = get_fire_nodes(incident_id,db)
-#     nodes = get_node_objs(graph,fire_nodes,building_id)
-#     start = nodes[start_id]
-#     end = nodes[goal_id]
-#     path = astar(nodes,start,end)
-#     return path
