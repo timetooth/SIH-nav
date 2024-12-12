@@ -106,6 +106,8 @@ def astar(nodes,start,goal_nodes):
         for neighbour_id in current.neighbours: 
             neighbour = nodes[int(neighbour_id)]
 
+            if neighbour.on_fire: continue
+
             temp_g_score = g_score[current] + g(current,neighbour)
             if temp_g_score < g_score[neighbour]:
                 came_from[neighbour] = current
