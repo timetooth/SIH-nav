@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from . import utils
 from . import PathFinder
 import requests
-import json
 
 nodes_data_cache = {} # building_id vs nodes_data
 graph_cache = {}
@@ -112,7 +111,7 @@ def route_nearest(request):
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
-    graph = get_graph(incident_id,db)
+    graph = get_graph(building_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
     nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     start = nodes[start_id]
@@ -198,7 +197,7 @@ def reroute(request):
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
     
     building_id = incident.json()['incident']['buildingId']
-    graph = get_graph(incident_id,db)
+    graph = get_graph(building_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
     nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     goal_nodes = []
@@ -210,7 +209,6 @@ def reroute(request):
     if users_data is None: users_data = {}
     users = dict(users_data)
     for user_id, user_data in users.items():
-        if not user_data['isInside']: continue
         start = nodes[user_data['nearestNode']]
         try:
             path_nodes, distance = PathFinder.astar(nodes,start,goal_nodes)
@@ -243,7 +241,7 @@ def get_dummy(request):
     db.child('Incidents').child(incident_id).child('UserRoutes').child(user_id).set(path)
     return Response({'message':f'Dummy Route Created for user {user_id}'}, status=status.HTTP_200_OK)
 
-def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_current=1013,alpha=0.5):
+def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue=10, P_current=1013,alpha=0.5):
     def clip(value, min_val=0.0, max_val=1.0): return max(min_val, min(value, max_val))
     T_ambient,T_maxRise = 25.0,75.0
     CO_max ,FlameMax = 1000.0, 1023.0
@@ -254,7 +252,7 @@ def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_cur
     S_n = clip(CO_ppm / CO_max)
     F_n = clip(FlameValue / FlameMax)
     P_n = clip(abs(P_current - P_baseline) / P_range)
-    W_flame,W_smoke,W_temp,W_hum,W_press = 0.40,0.30,0.20,0.05,0.05
+    W_temp,W_smoke,W_hum,W_press,W_flame = 0.40,0.30,0.20,0.0,0.0
     FII = (W_flame * F_n) + (W_smoke * S_n) + (W_temp * T_n) + (W_hum * H_n) + (W_press * P_n)
     FII = round(alpha*FII*100,2)
     return FII
@@ -262,17 +260,18 @@ def compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_cur
 @api_view(['Post'])
 def set_fire_intensity(request):
     incident_id = request.data.get('incident_id')
-    node_id = request.data.get('node_id')
-    T_current = request.data.get('temperature')
-    H_current = request.data.get('humidity')
-    CO_ppm = request.data.get('CO_ppm')
-    FlameValue = request.data.get('FlameValue')
-    P_current = request.data.get('pressure')
-    alpha = request.data.get('alpha',0.5)
-    if T_current is None or H_current is None or CO_ppm is None or FlameValue is None or P_current is None:
-        err = {'error': 'temperature, humidity, CO_ppm, FlameValue, and pressure are required parameters'}
+    if incident_id is None:
+        err = {'error': 'incident_id is required as querry params'}
         return Response(err, status=status.HTTP_400_BAD_REQUEST)
-    FII = compute_fire_intensity_index(T_current, H_current, CO_ppm, FlameValue, P_current,alpha)
+    node_id = request.data.get('node_id')
+    db = utils.get_db()
+    T_current = db.child('buildings').child('Nodes').child(f'{node_id}').child('temprature').get().val()
+    H_current = db.child('buildings').child('Nodes').child(f'{node_id}').child('humidity').get().val()
+    CO_ppm = db.child('buildings').child('Nodes').child(f'{node_id}').child('smokeLevel').get().val()
+    if T_current is None or H_current is None or CO_ppm is None: 
+        return Response({'error':'Node data not found'}, status=status.HTTP_400_BAD_REQUEST)
+    alpha = request.data.get('alpha',0.5)
+    FII = compute_fire_intensity_index(T_current, H_current, CO_ppm,alpha)
     db = utils.get_db()
     try:
         db.child('Incidents').child(incident_id).update({f'intensity':FII})
