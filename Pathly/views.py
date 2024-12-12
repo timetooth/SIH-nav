@@ -154,6 +154,9 @@ def route_user(request):
     building_id = incident.json()['incident']['buildingId']
     graph = get_graph(building_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
+    print('-'*100)
+    print(fire_nodes)
+    print('-'*100)
     nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     start = nodes[start]
     goal_nodes = []
@@ -199,6 +202,7 @@ def reroute(request):
     building_id = incident.json()['incident']['buildingId']
     graph = get_graph(building_id,db)
     fire_nodes = PathFinder.get_fire_nodes(incident_id,db)
+
     nodes, fire_extinguishers, medkits, exits = PathFinder.get_node_objs(graph,fire_nodes,building_id,get_node_data(building_id))
     goal_nodes = []
     if mode == 'exit': goal_nodes = exits

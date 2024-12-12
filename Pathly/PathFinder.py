@@ -32,9 +32,9 @@ def get_fire_nodes(incident_id,db):
     fire_nodes_data = db.child('Incidents').child(incident_id).child('Nodes').child('FireNodes').get().val()
     if fire_nodes_data is None: return []
     fire_nodes = []
-    for i,node in enumerate(fire_nodes_data):
-        if node is not None and node == True: fire_nodes.append(i)
-        elif isinstance(node, tuple) or isinstance(node, list): fire_nodes.append((node[0]))
+    for i,node in fire_nodes_data.items():
+        print(i,node)
+        fire_nodes.append(int(i))
     return fire_nodes
 
 def get_graph(building_id,db):
@@ -105,8 +105,6 @@ def astar(nodes,start,goal_nodes):
         
         for neighbour_id in current.neighbours: 
             neighbour = nodes[int(neighbour_id)]
-
-            if neighbour.on_fire: continue
 
             temp_g_score = g_score[current] + g(current,neighbour)
             if temp_g_score < g_score[neighbour]:

@@ -71,7 +71,7 @@ def start_simulation(request):
     ignite_cell: 2D array ([x,y]) coordinates of the cell to ignite
     shape: 2D array ([rows, cols]) shape of the grid
     steps: int number of keyframes
-    alpha, beta, gamma: optional hyperparameters, range(0,1)
+    alpha (normalized Temprature), beta (normalized Humidity), gamma (normalized Smoke data): hyperparameters, range(0,1) normalized sensor data
     warn_threshold: float threshold for warning, range(0,1)
     send_frames: bool whether to send the frames in the response
     '''
