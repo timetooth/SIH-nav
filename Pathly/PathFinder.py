@@ -80,8 +80,6 @@ def construct_path(came_from,current):
     return path
 
 def h(node,neighbour):
-    Node_on_fire_heuristic = float('inf')
-    if node.on_fire: return Node_on_fire_heuristic
     return 0
 
 def g(node,neighbour):
@@ -101,7 +99,7 @@ def astar(nodes,start,goal_nodes):
     while not open_set.empty():
         current = open_set.get()[2]
         open_set_hash.remove(current)
-        if current in goal_nodes: 
+        if current in goal_nodes and not current.on_fire: 
             path = construct_path(came_from,current)
             return path, int(g_score[current])
         
